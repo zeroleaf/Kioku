@@ -1,0 +1,293 @@
+= Star Dict 文件格式
+Doc Writer zeroleaf021@gmail.com
+
+.Files 字典文件
+
+每本字典都由以下文件组成:
+
+. *somedict.ifo* 字典元信息
+. *somedict.idx* 或 *somedict.idx.gz* 索引文件
+. *somedict.dict* 或 *somedict.dict.gz* 字典数据文件
+. *somedict.syn* (可选) 同义词典文件
+
+== *.ifo* 文件格式
+
+首先, 一个实例如下:
+
+ StarDict's dict ifo file
+ version=2.4.2
+ wordcount=4595
+ idxfilesize=70823
+ bookname=CET4
+ sametypesequence=m
+
+version 之后是键值对表示的字典信息, 称为 _option_. 每行一个 option, 键值之间用 `=`分隔,
+采用 *UTF-8* 编码.
+
+必须的字段有:
+
+* _bookname_
+* _wordcount_ - *.idx* 文件中单词的数量.
+* _idxfilesize_ - *.idx* 文件的大小, *字节* 为单位.
+* _synwordcount_ - 在 .syn 文件存在时.
+* _idxoffsetbits_ - 偏移地址长度, 决定 *.idx* 文件索引项的偏移地址字段的长度, 可以是 *32* 或 *64* 位.
+  (3.0.0 新增字段)
+
+可选的字段有:
+
+* _author_
+* _email_
+* _website_
+* _description_ - 使用 *<br>* 表示换行
+* _date_
+* sametypesequence - 与 *.dict* 文件有关.
+
+
+== *.idx* 文件格式
+
+_.idx_ 文件只是个已排序的单词列表. 单词列表中的每个条目(entry)都包含有3个字段:
+
+. `word_str` - 单词, 以 *UTF-8* 编码并以 *\0* 结尾.
+. `word_data_offset` - 单词在字典文件(.dict 文件)中的偏移地址.
+. `word_data_size` - 单词在字典文件中总的数据大小.
+
+word_str 保存单词的字符数据, StarDict 也是通过它来查找单词的. 同一个 word_str 可能对应
+两个或多个 word_data_offset 和 word_data_size. word_str 的长度必须小于 *256*.
+
+如果版本为 _3.0.0_ 且 _idxoffsetbits=64_, 则 word_data_offset 为 64 位网络字节序无符号整数,
+否则, 为 *32* 位.
+
+word_data_size 为 32 位网络字节序无符号整数.
+
+== *.syn* 文件格式
+
+该文件是可选的.
+
+_.syn_ 保存着同义词的信息, 也就是说, 当查询一个有着同义的词时, StarDict 会在这个文件中查找
+相关的词. 文件格式如下:
+
+. `synonym_word` - 同义词, 以 *UTF-8* 编码并以 *\0* 结尾.
+. `original_word_index` - 原词在索引文件中的索引位置.
+
+同样的, synonym_word 的长度必须小于 *256*. original_word_index 必须是32位无符号数,
+使用网络字节顺序. 两个或多个原词可能有相同的 synonym_word, 但对应不同的 original_word_index.
+文件数据必须是排过序的.
+
+== 偏移缓存文件格式
+
+_StarDict-2.4.8_ 开始支持, 可提高加载速度. 对解析无影响, 略过.
+
+== 校对文件格式
+
+利用校对函数对单词列表进行排序. 对解析无影响, 略过.
+
+== 字典数据文件格式
+
+_.dict_ 文件是存数据序列, 每个单词的索引位置和大小都在 *.idx* 文件中记录.
+
+如果 .ifo 文件未使用 `sametypesequence` 选项, 则 .dict 文件的字段如下所示:
+
+[source, format]
+====
+word_1_data_1_type; // 单个字符标识数据类型
+word_1_data_1_data; // 数据
+word_1_data_2_type;
+word_1_data_2_data;
+...... // 单词的词条数据(data entry)数量由 .idx 文件中的 word_data_size 字段决定
+word_2_data_1_type;
+word_2_data_1_data;
+====
+
+如果使用了 `sametypesequence` 选项, 以 _sametypesequence=tm_ 为例, .dict
+文件的字段则如下所示:
+
+[source, format]
+====
+word_1_data_1_data
+word_1_data_2_data
+word_2_data_1_data
+word_2_data_2_data
+====
+
+单词的每个词条数据之间通过 *\0* 分隔, 也即最后一个词条数据不包含 \0, 但
+其可通过 索引文件中的 word_data_size 来判断. 同时, 可以看到这里也省略了
+*字符类型标识*.
+
+=== 字符类型标识
+
+小写字符表示一个字段的大小由 *\0* 决定, 而大写的字符则表明数据以无符号32位(guint32)
+网络字节序来给出其之后的数据长度.
+
+.`m`
+
+纯文本. +
+数据应为 *UTF-8* 编码的字符串同时以 *\0* 结尾.
+
+.`l`
+
+纯文本. +
+数据不是 *UTF-8* 编码, 而是用本地编码的字符串, 以 *\0* 结尾. 有时使用该选项能节省磁盘空间,
+但不建议使用.
+
+.`g`
+
+纯文本. +
+用 https://developer.gnome.org/pango/stable/[*Pango*] 文本标记语言标记的 UTF-8 字符串. 具体可查看
+https://developer.gnome.org/pango/stable/PangoMarkupFormat.html[Text Attribute Markup].
+
+.`t`
+
+英语音标字符串. *UTF-8* 编码, *\0* 结尾.
+
+以下是一些 UTF-8 音标字符:
+
+`θʃŋʧðʒæıʌʊɒɛəɑɜɔˌˈːˑṃṇḷæɑɒʌәєŋvθðʃʒɚːɡˏˊ`
+
+.`x`
+
+xdxf 语言标记的 *UTF-8* 字符串.
+
+StarDict 有如下的拓展:
+
+`<rref>` 可以有 `type` 属性, 值可以为 `image`, `sound`, `video`, `attach`. +
+`<kref>` 可以有 `k` 属性.
+
+.`y`
+
+中文音标或者日文假名(KANA). *UTF-8* 编码, *\0* 结尾.
+
+.`k`
+
+KingSoft PowerWord 的数据. *UTF-8* 编码, *\0* 结尾. XML 格式.
+
+.`w`
+
+http://meta.wikimedia.org/wiki/Help:Editing#The_wiki_markup[MediaWiki 标记语言].
+
+.`h`
+
+HTML 代码.
+
+.`n`
+
+WordNet 数据.
+
+.`r`
+
+资源文件列表. 内容可以为:
+
+* img:pic/example.jpg   // 图片
+* snd:apple.wav         // 音频
+* vdo:film.avi          // 视频
+* att:file.bin          // 附件
+
+可用文件列表支持多行. StarDict 会在 资源存储(Resource Storage)中查找这些文件. 图片会被显示,
+音频文件会有个播放按钮, 可以另存附件等.
+
+.`W`
+
+wav 文件. +
+该数据以一个 32 位网络字节序的无符号整数开始, 以标识 wav 文件的大小, 之后就是文件内容.
+
+.`P`
+
+图片. +
+类似 W.
+
+.`X`
+
+保留标识符, 用于试验性的拓展.
+
+== 资源存储
+
+资源存储保存了 `r` 资源文件列表的外部文件. 基于 HTML 代码的图片, 以及基于
+wiki 标签的图片, 多媒体和其它文件等. 有 2 种形式:
+
+. 直接目录(direct directory), 文件都在 *res* 子文件夹中.
+. *res.rifo*, *res.ridx*, *res.rdic* 数据库.
+
+直接文件可能有文件名编码问题, 由于 Linux 使用 UTF-8, Windows 使用本地编码,
+所以最好使用 ASCII 文件名, 或者使用数据库来存储 UTF-8 的文件名.
+
+数据库需要将文件(如 .wav 文件)提取到一个零时文件中, 因此与直接文件相比不那么高效.
+但是数据库有压缩的优势.
+
+可以通过 `dir2resdatabase` 和 `resdatabase2dir` 工具在 res 文件夹和 res 数据库
+之间相互转换.
+
+*res.rifo* 文件格式
+
+  StarDict's storage ifo file
+  version=3.0.0
+  filecount=        // 必须
+  idxoffsetbits=    // 可选
+
+*res.ridx* 文件格式
+
+  filename;     // 以 \0 结尾的字符串
+  offset;       // 网络字节序的 32 或 64 位的无符号整数
+  size;         // 32 位网络字节序的无符号整数
+
+文件名也可以包含一个路径, 如 _pic/example.png_. 文件名是大小写敏感的,
+因此不能有重名.
+
+如果 `idxoffsetbits=64`, 则索引为 64 位. 每个条目都包含这3个字段.
+条目通过 `strcmp()` 函数按 文件名字段 排序.
+不同的文件名有相同的索引和大小是可能的.
+
+*res.rdic* 文件格式
+
+仅是每个资源文件的连接. 可以将该文件压缩(diczip)为 res.rdic.dz.
+
+== 树形目录
+
+树形目录的支持是用于信息的查看等.
+
+一个树形目录包含 3 个文件: *sometreedict.ifo*, *sometreedict.tdx.gz*, *sometreedict.dict.dz*.
+
+由于总是加载到内存中, 因此最好压缩 .tdx 文件.
+
+\.ifo 文件格式如下:
+
+  StarDict's treedict ifo file
+  version=2.4.2
+  [options]
+
+可用的选项有:
+
+* bookname        // 必须
+* tdxfilesize     // 必须
+* wordcount
+* author
+* email
+* website
+* description
+* date
+* sametypesequence
+
+\.tdx 文件仅是单词列表. 单词列表中的每个条目包含 4 个字段, 依次是:
+
+. word_str            // 以 \0 结尾的 UTF-8 字符串
+. word_data_offset    // 单词内容在 .dict 文件中的偏移.
+. word_data_size      // .dict 中单词内容的大小. 可能为 0.
+. word_subentry_count // 该条目包含几个子条目, 0 表示没有.
+
+子条目立即接在父条目之下.
+
+*word_data_offset*, *word_data_size*, *word_subentry_count* 应为 32 位网络字节序
+无符号整数.
+
+\.dict 文件格式与一般的字典数据文件格式相同.
+
+
+== 附录
+
+=== 参考文档
+
+* http://blog.csdn.net/DL88250/article/details/2162228[ Java读取星际译王(StarDict)词库]
+* http://www.360doc.com/content/11/1207/20/426561_170475462.shtml[星际译王字典文件格式]
+
+=== 字典
+
+* http://abloz.com/huzheng/stardict-dic/zh_CN/[zh_CN 简体中文词典]
+* http://abloz.com/huzheng/stardict-dic/[StarDict Dictionaries -- 星际译王词库 词典下载]
